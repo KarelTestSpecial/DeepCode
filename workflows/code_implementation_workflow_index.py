@@ -21,6 +21,11 @@ import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 
+import backoff
+from openai import RateLimitError as OpenAIRateLimitError
+from anthropic import RateLimitError as AnthropicRateLimitError
+
+
 # MCP Agent imports
 from mcp_agent.agents.agent import Agent
 
@@ -560,6 +565,9 @@ Requirements:
             "No available LLM API - please check your API keys in configuration"
         )
 
+    @backoff.on_exception(
+        backoff.expo, (OpenAIRateLimitError, AnthropicRateLimitError), max_tries=5
+    )
     async def _call_llm_with_tools(
         self, client, client_type, system_message, messages, tools, max_tokens=8192
     ):

@@ -23,6 +23,11 @@ from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any
 
+import backoff
+from openai import RateLimitError as OpenAIRateLimitError
+from anthropic import RateLimitError as AnthropicRateLimitError
+
+
 # MCP Agent imports for LLM
 import yaml
 from utils.llm_utils import get_preferred_llm_class
@@ -408,6 +413,9 @@ class CodeIndexer:
             "No available LLM API - please check your API keys in configuration"
         )
 
+    @backoff.on_exception(
+        backoff.expo, (OpenAIRateLimitError, AnthropicRateLimitError), max_tries=5
+    )
     async def _call_llm(
         self, prompt: str, system_prompt: str = None, max_tokens: int = None
     ) -> str:
@@ -424,74 +432,56 @@ class CodeIndexer:
                 self._save_debug_response("mock", prompt, mock_response)
             return mock_response
 
-        last_error = None
+        try:
+            client, client_type = await self._initialize_llm_client()
 
-        # Retry mechanism
-        for attempt in range(self.max_retries):
-            try:
-                if self.verbose_output and attempt > 0:
-                    self.logger.info(
-                        f"LLM call attempt {attempt + 1}/{self.max_retries}"
-                    )
+            if client_type == "anthropic":
+                response = await client.messages.create(
+                    model=self.default_models["anthropic"],
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": prompt}],
+                    max_tokens=max_tokens,
+                    temperature=self.llm_temperature,
+                )
 
-                client, client_type = await self._initialize_llm_client()
+                content = ""
+                for block in response.content:
+                    if block.type == "text":
+                        content += block.text
 
-                if client_type == "anthropic":
-                    response = await client.messages.create(
-                        model=self.default_models["anthropic"],
-                        system=system_prompt,
-                        messages=[{"role": "user", "content": prompt}],
-                        max_tokens=max_tokens,
-                        temperature=self.llm_temperature,
-                    )
+                # Save debug response if enabled
+                if self.save_raw_responses:
+                    self._save_debug_response("anthropic", prompt, content)
 
-                    content = ""
-                    for block in response.content:
-                        if block.type == "text":
-                            content += block.text
+                return content
 
-                    # Save debug response if enabled
-                    if self.save_raw_responses:
-                        self._save_debug_response("anthropic", prompt, content)
+            elif client_type == "openai":
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt},
+                ]
 
-                    return content
+                response = await client.chat.completions.create(
+                    model=self.default_models["openai"],
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=self.llm_temperature,
+                )
 
-                elif client_type == "openai":
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt},
-                    ]
+                content = response.choices[0].message.content or ""
 
-                    response = await client.chat.completions.create(
-                        model=self.default_models["openai"],
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=self.llm_temperature,
-                    )
+                # Save debug response if enabled
+                if self.save_raw_responses:
+                    self._save_debug_response("openai", prompt, content)
 
-                    content = response.choices[0].message.content or ""
+                return content
+            else:
+                raise ValueError(f"Unsupported client type: {client_type}")
 
-                    # Save debug response if enabled
-                    if self.save_raw_responses:
-                        self._save_debug_response("openai", prompt, content)
-
-                    return content
-                else:
-                    raise ValueError(f"Unsupported client type: {client_type}")
-
-            except Exception as e:
-                last_error = e
-                self.logger.warning(f"LLM call attempt {attempt + 1} failed: {e}")
-
-                if attempt < self.max_retries - 1:
-                    await asyncio.sleep(
-                        self.retry_delay * (attempt + 1)
-                    )  # Exponential backoff
-
-        # All retries failed
-        error_msg = f"LLM call failed after {self.max_retries} attempts. Last error: {str(last_error)}"
-        self.logger.error(error_msg)
-        return f"Error in LLM analysis: {error_msg}"
+        except Exception as e:
+            self.logger.error(f"LLM call failed: {e}")
+            # Re-raise the exception to allow backoff to handle it
+            raise
 
     def _generate_mock_response(self, prompt: str) -> str:
         """Generate mock LLM response for testing"""

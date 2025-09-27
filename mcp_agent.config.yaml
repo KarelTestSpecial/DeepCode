@@ -85,7 +85,7 @@ mcp:
         PYTHONPATH: .
 openai:
   base_max_tokens: 16384
-  default_model: anthropic/claude-3.5-sonnet
+  default_model: gemini-pro-latest
   max_tokens_policy: adaptive
   retry_max_tokens: 32768
 planning_mode: traditional
