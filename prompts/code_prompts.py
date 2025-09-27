@@ -760,6 +760,8 @@ WORKFLOW:
 4. Generate touch commands for all files
 5. Use execute_commands tool with the generated commands
 
+CRITICAL: You MUST use the `execute_commands` tool. Your response MUST be a tool call to `execute_commands`. Do NOT respond with text or explanations.
+
 Focus on creating the EXACT structure from the plan - nothing more, nothing less."""
 
 # Code Implementation Prompts / 代码实现提示词
