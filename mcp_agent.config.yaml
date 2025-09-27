@@ -1,6 +1,6 @@
 $schema: ./schema/mcp-agent.config.schema.json
 anthropic: null
-default_search_server: fetch
+default_search_server: null
 document_segmentation:
   enabled: true
   size_threshold_chars: 50000
@@ -64,7 +64,7 @@ mcp:
     fetch:
       args:
       - mcp-server-fetch
-      command: uvx
+      command: npx
     file-downloader:
       args:
       - tools/pdf_downloader.py

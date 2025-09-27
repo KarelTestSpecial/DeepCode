@@ -1,0 +1,2 @@
+{"level":"INFO","timestamp":"2025-09-27T17:17:28.778982","namespace":"mcp_agent.mcp.mcp_aggregator.ChatPlanningAgent","message":"Last aggregator closing, shutting down all persistent connections..."}
+{"level":"INFO","timestamp":"2025-09-27T17:17:28.779426","namespace":"mcp_agent.mcp.mcp_connection_manager","message":"Disconnecting all persistent server connections..."}

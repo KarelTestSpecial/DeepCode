@@ -221,7 +221,9 @@ def get_search_server_names(
         List[str]: List of server names including the default search server
     """
     default_search = get_default_search_server()
-    server_names = [default_search]
+    server_names = []
+    if default_search:
+        server_names.append(default_search)
 
     if additional_servers:
         # Add additional servers, avoiding duplicates

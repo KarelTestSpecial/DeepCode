@@ -12,14 +12,17 @@ from typing import Any, Type, Dict, Tuple
 # Import LLM classes
 from mcp_agent.workflows.llm.augmented_llm_anthropic import AnthropicAugmentedLLM
 from mcp_agent.workflows.llm.augmented_llm_openai import OpenAIAugmentedLLM
+from utils.gemini_llm import GeminiAugmentedLLM
 
 
 def get_preferred_llm_class(config_path: str = "mcp_agent.secrets.yaml") -> Type[Any]:
     """
-    Automatically select the LLM class based on API key availability in configuration.
+    Automatically select the LLM class based on API key availability.
 
-    Reads from YAML config file and returns AnthropicAugmentedLLM if anthropic.api_key
-    is available, otherwise returns OpenAIAugmentedLLM.
+    Priority:
+    1. Gemini (if GEMINI_API_KEY is set)
+    2. Anthropic (if anthropic.api_key is in config)
+    3. OpenAI (fallback)
 
     Args:
         config_path: Path to the YAML configuration file
@@ -27,29 +30,55 @@ def get_preferred_llm_class(config_path: str = "mcp_agent.secrets.yaml") -> Type
     Returns:
         class: The preferred LLM class
     """
+    # 1. Prioritize native Gemini if the environment variable is set
+    if os.environ.get("GEMINI_API_KEY"):
+        print("🤖 Using GeminiAugmentedLLM (GEMINI_API_KEY found in environment)")
+        return GeminiAugmentedLLM
+
     try:
-        # Try to read the configuration file
-        if os.path.exists(config_path):
-            with open(config_path, "r", encoding="utf-8") as f:
-                config = yaml.safe_load(f)
-
-            # Check for anthropic API key in config
-            anthropic_config = config.get("anthropic", {})
-            anthropic_key = anthropic_config.get("api_key", "")
-
-            if anthropic_key and anthropic_key.strip() and not anthropic_key == "":
-                # print("🤖 Using AnthropicAugmentedLLM (Anthropic API key found in config)")
-                return AnthropicAugmentedLLM
-            else:
-                # print("🤖 Using OpenAIAugmentedLLM (Anthropic API key not configured)")
-                return OpenAIAugmentedLLM
-        else:
-            print(f"🤖 Config file {config_path} not found, using OpenAIAugmentedLLM")
+        if not os.path.exists(config_path):
+            print(f"🤖 Config file {config_path} not found. Falling back to OpenAIAugmentedLLM, assuming OPENAI_API_KEY is set.")
             return OpenAIAugmentedLLM
 
+        with open(config_path, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+        raw_config = yaml.safe_load(raw_content)
+
+        # Check if the config intends to use Gemini via the openai section
+        openai_config_raw = raw_config.get("openai", {})
+        if openai_config_raw.get("api_key") == "${GEMINI_API_KEY}":
+            # The config intends to use Gemini, but the env var was not set. This is an error.
+            raise ValueError("Configuration error: `mcp_agent.secrets.yaml` is configured to use GEMINI_API_KEY, but this environment variable is not set.")
+
+        # Now expand vars to check for other keys
+        expanded_content = os.path.expandvars(raw_content)
+        config = yaml.safe_load(expanded_content)
+
+        # 2. Check for a valid Anthropic key
+        anthropic_config = config.get("anthropic", {})
+        anthropic_key = anthropic_config.get("api_key", "")
+        if anthropic_key and anthropic_key.strip():
+            print("🤖 Using AnthropicAugmentedLLM (Anthropic API key found in config)")
+            return AnthropicAugmentedLLM
+
+        # 3. Check for a valid OpenAI key (that is not the gemini placeholder)
+        openai_config = config.get("openai", {})
+        openai_key = openai_config.get("api_key", "")
+        if openai_key and openai_key.strip():
+             print("🤖 Using OpenAIAugmentedLLM (OpenAI API key found in config)")
+             return OpenAIAugmentedLLM
+
+        # If we get here, no valid keys were found or configured.
+        print("🤖 No valid API keys found. Falling back to OpenAIAugmentedLLM, which will likely fail without an API key.")
+        return OpenAIAugmentedLLM
+
+    except ValueError as e:
+        # Re-raise the specific configuration error to halt execution
+        raise e
     except Exception as e:
         print(f"🤖 Error reading config file {config_path}: {e}")
-        print("🤖 Falling back to OpenAIAugmentedLLM")
+        print("🤖 Falling back to OpenAIAugmentedLLM due to error.")
         return OpenAIAugmentedLLM
 
 
