@@ -7,6 +7,8 @@ to analyze document structure and prepare segments for other agents.
 
 import os
 import logging
+import backoff
+import aiohttp
 from typing import Dict, Any, Optional
 
 from mcp_agent.agents.agent import Agent
@@ -51,6 +53,7 @@ class DocumentSegmentationAgent:
         """Async context manager exit"""
         await self.cleanup()
 
+    @backoff.on_exception(backoff.expo, aiohttp.ClientError, max_tries=5)
     async def initialize(self):
         """Initialize the MCP agent connection"""
         try:

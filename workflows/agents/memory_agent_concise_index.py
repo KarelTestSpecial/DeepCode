@@ -23,6 +23,11 @@ import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
+import backoff
+import aiohttp
+from openai import RateLimitError as OpenAIRateLimitError
+from anthropic import RateLimitError as AnthropicRateLimitError
+
 
 class ConciseMemoryAgent:
     """
@@ -834,6 +839,9 @@ class ConciseMemoryAgent:
         except Exception as e:
             self.logger.error(f"Failed to save code implementation summary: {e}")
 
+    @backoff.on_exception(
+        backoff.expo, (OpenAIRateLimitError, AnthropicRateLimitError, aiohttp.ClientError), max_tries=5
+    )
     async def _call_llm_for_summary(
         self, client, client_type: str, summary_messages: List[Dict]
     ) -> Dict[str, Any]:

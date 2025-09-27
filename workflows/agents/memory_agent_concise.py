@@ -23,6 +23,11 @@ import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional
 
+import backoff
+import aiohttp
+from openai import RateLimitError as OpenAIRateLimitError
+from anthropic import RateLimitError as AnthropicRateLimitError
+
 
 class ConciseMemoryAgent:
     """
@@ -834,6 +839,9 @@ class ConciseMemoryAgent:
         except Exception as e:
             self.logger.error(f"Failed to save code implementation summary: {e}")
 
+    @backoff.on_exception(
+        backoff.expo, (OpenAIRateLimitError, AnthropicRateLimitError, aiohttp.ClientError), max_tries=5
+    )
     async def _call_llm_for_summary(
         self, client, client_type: str, summary_messages: List[Dict]
     ) -> Dict[str, Any]:
@@ -843,54 +851,58 @@ class ConciseMemoryAgent:
         This method is used only for creating code implementation summaries,
         NOT for conversation summarization which has been removed.
         """
-        if client_type == "anthropic":
-            response = await client.messages.create(
-                model=self.default_models["anthropic"],
-                system="You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
-                messages=summary_messages,
-                max_tokens=5000,
-                temperature=0.2,
-            )
-
-            content = ""
-            for block in response.content:
-                if block.type == "text":
-                    content += block.text
-
-            return {"content": content}
-
-        elif client_type == "openai":
-            openai_messages = [
-                {
-                    "role": "system",
-                    "content": "You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
-                }
-            ]
-            openai_messages.extend(summary_messages)
-
-            # Try max_tokens and temperature first, fallback to max_completion_tokens without temperature if unsupported
-            try:
-                response = await client.chat.completions.create(
-                    model=self.default_models["openai"],
-                    messages=openai_messages,
+        try:
+            if client_type == "anthropic":
+                response = await client.messages.create(
+                    model=self.default_models["anthropic"],
+                    system="You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
+                    messages=summary_messages,
                     max_tokens=5000,
                     temperature=0.2,
                 )
-            except Exception as e:
-                if "max_tokens" in str(e) and "max_completion_tokens" in str(e):
-                    # Retry with max_completion_tokens and no temperature for models that require it
+
+                content = ""
+                for block in response.content:
+                    if block.type == "text":
+                        content += block.text
+
+                return {"content": content}
+
+            elif client_type == "openai":
+                openai_messages = [
+                    {
+                        "role": "system",
+                        "content": "You are an expert code implementation summarizer. Create structured summaries of implemented code files that preserve essential information about functions, dependencies, and implementation approaches.",
+                    }
+                ]
+                openai_messages.extend(summary_messages)
+
+                # Try max_tokens and temperature first, fallback to max_completion_tokens without temperature if unsupported
+                try:
                     response = await client.chat.completions.create(
                         model=self.default_models["openai"],
                         messages=openai_messages,
-                        max_completion_tokens=5000,
+                        max_tokens=5000,
+                        temperature=0.2,
                     )
-                else:
-                    raise
+                except Exception as e:
+                    if "max_tokens" in str(e) and "max_completion_tokens" in str(e):
+                        # Retry with max_completion_tokens and no temperature for models that require it
+                        response = await client.chat.completions.create(
+                            model=self.default_models["openai"],
+                            messages=openai_messages,
+                            max_completion_tokens=5000,
+                        )
+                    else:
+                        raise
 
-            return {"content": response.choices[0].message.content or ""}
+                return {"content": response.choices[0].message.content or ""}
 
-        else:
-            raise ValueError(f"Unsupported client type: {client_type}")
+            else:
+                raise ValueError(f"Unsupported client type: {client_type}")
+        except (OpenAIRateLimitError, AnthropicRateLimitError) as e:
+            self.logger.warning(f"Rate limit error during summary generation: {e}")
+            raise
 
     def start_new_round(self, iteration: Optional[int] = None):
         """Start a new dialogue round and reset tool results

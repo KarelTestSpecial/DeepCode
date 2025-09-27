@@ -318,7 +318,12 @@ class CodeIndexer:
             import yaml
 
             with open(self.config_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                config_str = f.read()
+
+            # Expand environment variables
+            config_str = os.path.expandvars(config_str)
+
+            return yaml.safe_load(config_str)
         except Exception as e:
             # Create a basic logger for this error since self.logger doesn't exist yet
             print(f"Warning: Failed to load API config from {self.config_path}: {e}")

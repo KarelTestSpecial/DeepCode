@@ -1,6 +1,6 @@
 $schema: ./schema/mcp-agent.config.schema.json
 anthropic: null
-default_search_server: brave
+default_search_server: fetch
 document_segmentation:
   enabled: true
   size_threshold_chars: 50000
@@ -30,7 +30,7 @@ mcp:
       - '@modelcontextprotocol/server-brave-search'
       command: npx
       env:
-        BRAVE_API_KEY: ''
+        BRAVE_API_KEY: 'your_key_here'
     code-implementation:
       args:
       - tools/code_implementation_server.py

@@ -70,7 +70,12 @@ class CodeImplementationWorkflowWithIndex:
         """Load API configuration from YAML file"""
         try:
             with open(self.config_path, "r", encoding="utf-8") as f:
-                return yaml.safe_load(f)
+                config_str = f.read()
+
+            # Expand environment variables
+            config_str = os.path.expandvars(config_str)
+
+            return yaml.safe_load(config_str)
         except Exception as e:
             raise Exception(f"Failed to load API config: {e}")
 
@@ -583,6 +588,9 @@ Requirements:
                 )
             else:
                 raise ValueError(f"Unsupported client type: {client_type}")
+        except (OpenAIRateLimitError, AnthropicRateLimitError) as e:
+            self.logger.warning(f"Rate limit error in LLM call: {e}")
+            raise
         except Exception as e:
             self.logger.error(f"LLM call failed: {e}")
             raise

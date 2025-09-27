@@ -8,6 +8,8 @@ memory optimization for long-running development sessions.
 import json
 import time
 import logging
+import backoff
+import aiohttp
 from typing import Dict, Any, List, Optional
 
 # Import tiktoken for token calculation
@@ -151,6 +153,7 @@ class CodeImplementationAgent:
         self.llm_client_type = llm_client_type
         self.logger.info("Memory agent integration configured")
 
+    @backoff.on_exception(backoff.expo, aiohttp.ClientError, max_tries=5)
     async def execute_tool_calls(self, tool_calls: List[Dict]) -> List[Dict]:
         """
         Execute MCP tool calls and track implementation progress
